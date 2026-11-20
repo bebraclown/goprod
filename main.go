@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 
@@ -9,40 +12,34 @@ import (
 )
 
 func main() {
-	// Загрузка переменных окружения из .env файла
-	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found")
+	if err := run(); err != nil {
+		log.Fatal(err)
 	}
+}
 
-	// Инициализация JWT секретного ключа
-	InitAuth()
-
-	// TODO: Инициализация подключения к базе данных
-	// Используйте функцию InitDB() из database.go
+func run() error {
+	if err := godotenv.Load(); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return errors.New("could not load .env")
+	}
+	if err := InitAuth(); err != nil {
+		return err
+	}
 	if err := InitDB(); err != nil {
-		log.Fatal("Failed to connect to database:", err)
+		return fmt.Errorf("connect to database: %w", err)
 	}
 	defer CloseDB()
 
-	// TODO: Настройка HTTP маршрутов
-	// Используйте обработчики из handlers.go
-	http.HandleFunc("/register", RegisterHandler)
-	http.HandleFunc("/login", LoginHandler)
-	http.HandleFunc("/profile", AuthMiddleware(ProfileHandler))
-	http.HandleFunc("/health", HealthHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/register", RegisterHandler)
+	mux.HandleFunc("/login", LoginHandler)
+	mux.HandleFunc("/profile", AuthMiddleware(ProfileHandler))
+	mux.HandleFunc("/health", HealthHandler)
 
-	// Запуск сервера
-	port := getEnv("SERVER_PORT", "8080")
-	log.Printf("🚀 Server starting on port %s", port)
-	log.Printf("📝 Register: POST http://localhost:%s/register", port)
-	log.Printf("🔐 Login: POST http://localhost:%s/login", port)
-	log.Printf("👤 Profile: GET http://localhost:%s/profile (requires token)", port)
-	log.Printf("❤️  Health: GET http://localhost:%s/health", port)
-
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	address := net.JoinHostPort("127.0.0.1", getEnv("SERVER_PORT", "8080"))
+	log.Printf("Server listening on http://%s", address)
+	return http.ListenAndServe(address, mux)
 }
 
-// getEnv получает значение переменной окружения или возвращает значение по умолчанию
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
